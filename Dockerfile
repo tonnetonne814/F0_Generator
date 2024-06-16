@@ -1,12 +1,12 @@
 FROM nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
 
-WORKDIR /home/workdir/
+WORKDIR /home/user/project
 
 # 必要なものを入れる
-RUN apt update && apt install -y ffmpeg gcc cmake libsndfile1  
+RUN apt update && apt install -y ffmpeg gcc cmake libsndfile1
 
 # 途中でtimezone求められたりして停止しないように
-ENV DEBIAN_FRONTEND="noninteractive" 
+ENV DEBIAN_FRONTEND="noninteractive"
 
 ### anaconda ### ref:https://www.eureka-moments-blog.com/entry/2020/02/22/160931#3-AnacondaPython37%E3%82%92%E3%82%A4%E3%83%B3%E3%82%B9%E3%83%88%E3%83%BC%E3%83%AB
 # RUN set -x && \
@@ -25,10 +25,10 @@ ENV DEBIAN_FRONTEND="noninteractive"
 ################
 
 # pyenv全体設定 # ref https://blog.8tak4.com/post/158052756945/dockerfile-pyenv
-ENV HOME /home/pyenv_dir
-ENV PYENV_ROOT $HOME/.pyenv
+ENV HOME /home/user/project
+ENV PYENV_ROOT /home/user/.pyenv
 ### shimsが無いとpythonが通らない https://qiita.com/makuramoto1/items/b5aa08d5fc1ce6af0fb4
-ENV PATH $PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH 
+ENV PATH $PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH
 ### pyenvに必要なものインストール https://github.com/pyenv/pyenv/blob/master/Dockerfile
 RUN apt-get update -y \
     && apt-get install -y \
@@ -48,11 +48,11 @@ RUN apt-get update -y \
         tk-dev \
         libffi-dev \
         liblzma-dev \
-        git 
+        git
 RUN git clone https://github.com/yyuu/pyenv.git $PYENV_ROOT
 RUN pyenv --version && \
-    pyenv install 3.11.7 && \ 
+    pyenv install 3.11.7 && \
     pyenv global 3.11.7  && \
     pyenv rehash
-RUN pip install --upgrade pip 
-RUN pip install poetry 
+RUN pip install --upgrade pip
+RUN pip install poetry

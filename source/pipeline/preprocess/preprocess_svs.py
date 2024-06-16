@@ -5,13 +5,13 @@ import torch
 from tqdm import tqdm
 import random
 import argparse
-from source.utils.f0_extractor import F0_extractor
+from source.utils.audio_utils.f0_extractor import F0_extractor
 import subprocess
-from source.utils.singDB_loader import get_annotated_data, get_lab_info
+from source.utils.audio_utils.singDB_loader import get_annotated_data, get_lab_info
 
 target_sr = 44100
 hop_size = 512
-song_min_s = 5000 
+song_min_s = 5000
 split_ratio = 0.005
 padding_ms = 500
 
@@ -40,7 +40,7 @@ def preprocess(folder, f0_method, out_dir, audio_norm):
         anno_datalist = get_annotated_data(ust_path = ust_path,
                                            lab_path=lab_path,
                                            ono2lab_table_path=oto2lab_path)
-        
+
         f0, vuv = pitch_extractor.compute_f0(path=wav_path, f0_method=f0_method)
         wav, sr = torchaudio.load(wav_path)
         if sr != target_sr:
@@ -49,7 +49,7 @@ def preprocess(folder, f0_method, out_dir, audio_norm):
             print("[ERROR] Audio Channel is not 1ch.")
             exit()
         wav = torch.squeeze(wav, dim=0)
-        
+
         t_s = 0
         t_e = 0
         ph_list             = list()
@@ -66,13 +66,13 @@ def preprocess(folder, f0_method, out_dir, audio_norm):
         note_e_ms_list      = list()
         note_dur_ms_list        = list()
         n_ph_in_a_word      = list()
-        
+
         ### pad head ###
         ph_list             .append("pau")
         ph_s_ms_list        .append(0.0)
         ph_e_ms_list        .append(padding_ms)
         ph_dur_ms_list      .append(padding_ms)
-        word_s_ms_list      .append(0.0) 
+        word_s_ms_list      .append(0.0)
         word_e_ms_list      .append(padding_ms)
         word_dur_ms_list    .append(padding_ms)
         word_list           .append("R")
@@ -89,7 +89,7 @@ def preprocess(folder, f0_method, out_dir, audio_norm):
 
             # 無音時のみ保存処理に入るかどうか判定する
             if line["ph"][0][0] == "pau":
-                
+
                 # 終わりの単語時刻に合わせる
                 t_e = line["word_start_ms"]
                 #t_e = line["note_start_ms"]
@@ -155,15 +155,11 @@ def preprocess(folder, f0_method, out_dir, audio_norm):
                     print("[WARNING] Detects errors of 3 frames or more. {:.5f} [ms]".format(diff))
 
                 ### pad back ###
-                
-                ################
-                    
-                    
-                # pad部分のf0 vuvを0へ返還 #
 
+                ################
+                # pad部分のf0 vuvを0へ返還 #
                 ###########################
-                    
-                torchaudio.save(basename + ".wav", 
+                torchaudio.save(basename + ".wav",
                                 torch.unsqueeze(wav[w_s_idx:w_e_idx], dim=0) ,
                                 target_sr)
                 torch.save(f0[h_s_idx:h_e_idx], basename + "_f0.pt")
@@ -183,7 +179,7 @@ def preprocess(folder, f0_method, out_dir, audio_norm):
                 torch.save(note_dur_ms_list,        basename + "_notedur.pt" )
                 torch.save(n_ph_in_a_word,      basename + "_n_ph_in_a_word.pt" )
                 filelist.append(basename + "\n")
-                count+=1 
+                count+=1
 
                 # init
                 ph_list             = list()
@@ -198,11 +194,11 @@ def preprocess(folder, f0_method, out_dir, audio_norm):
                 ph_e_ms_list        = list()
                 ph_dur_ms_list      = list()
                 n_ph_in_a_word      = list()
-                
+
                 ### pad head ###
 
                 ################
-                
+
                 # next start time
                 t_s = line["word_end_ms"]
                 #t_s = line["note_end_ms"]
@@ -240,7 +236,7 @@ def audio_norm_process(in_path, out_path):
     subprocess.run(cmd, encoding='utf-8', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def filelist_split(filelist):
-    os.makedirs("./filelists/",exist_ok=True)   
+    os.makedirs("./filelists/",exist_ok=True)
     max_n = len(filelist)
     test_list = list()
     for _ in range(int(max_n * split_ratio)):
@@ -272,7 +268,7 @@ def write_txt(path, lines):
     with open(path, mode="w", encoding="utf-8")as f:
         f.writelines(lines)
 
-import glob 
+import glob
 def generate_word_list(dataset_dir, out_path):
     pathlist = glob.glob(f"{dataset_dir}/*.wav")
     word_list = list()
@@ -325,19 +321,19 @@ if __name__ == "__main__":
 
     parser.add_argument('--song_db_path',
                         type=str,
-                        #required=True, 
-                        default="./dataset/「波音リツ」歌声データベースVer2/")
-    
+                        #required=True,
+                        default="./data/「波音リツ」歌声データベースVer2/")
+
     parser.add_argument('--f0_method',
                         type=str,
                         #required=True,
                         default="crepe")
-    
+
     parser.add_argument('--dataset_out_dir',
                         type=str,
                         #required=True,
-                        default="./dataset_SVS/")
-    
+                        default="./data/dataset/")
+
     parser.add_argument('--audio_normalize',
                         type=str,
                         default=True)
@@ -348,7 +344,7 @@ if __name__ == "__main__":
                f0_method=args.f0_method,
                out_dir=args.dataset_out_dir,
                audio_norm=args.audio_normalize)
-    
+
     take_ph_statistics(dataset_dir=args.song_db_path,
                        out_path=os.path.join(args.dataset_out_dir, "ph_statistics.pt"))
 
@@ -357,4 +353,3 @@ if __name__ == "__main__":
     #for path in glob.glob("./dataset_SVS/*.wav"):
     #    filelist.append(str(path).replace(".wav", "") + "\n")
     #filelist_split(filelist)
-    

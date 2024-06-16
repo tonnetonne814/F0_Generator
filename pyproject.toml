@@ -3,7 +3,7 @@ name = "workdir"
 version = "0.1.0"
 description = "実験環境"
 authors = ["tonnetonne814"]
-license = "MIT Lisence"
+license = "Apache-2.0 license"
 readme = "README.md"
 
 packages = [

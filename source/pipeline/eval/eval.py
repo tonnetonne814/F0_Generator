@@ -1,10 +1,14 @@
 from typing import Any, Dict, List, Tuple
-
+import argparse
 import hydra
 import rootutils
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
+
+# 警告非表示
+import warnings
+warnings.filterwarnings(action='ignore')
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -24,7 +28,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # more info: https://github.com/ashleve/rootutils
 # ------------------------------------------------------------------------------------ #
 
-from source.utils import (
+from source.utils.training_utils import (
     RankedLogger,
     extras,
     instantiate_loggers,
@@ -33,7 +37,6 @@ from source.utils import (
 )
 
 log = RankedLogger(__name__, rank_zero_only=True)
-
 
 @task_wrapper
 def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -82,7 +85,6 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     return metric_dict, object_dict
 
 
-@hydra.main(version_base="1.3", config_path="/home/workdir/configs/", config_name="eval.yaml")
 def main(cfg: DictConfig) -> None:
     """Main entry point for evaluation.
 
@@ -96,4 +98,16 @@ def main(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config_path',
+                        type=str,
+                        #required=True,
+                        default="/home/workdir/configs/")
+    parser.add_argument('--config_name',
+                        type=str,
+                        #required=True,
+                        default="eval.yaml")
+    args = parser.parse_args()
+
+    hydra_main = hydra.main(version_base="1.3", config_path=args.config_path, config_name=args.config_name)
+    hydra_main(main)()

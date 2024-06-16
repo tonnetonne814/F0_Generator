@@ -3,8 +3,8 @@
 tensorboard:
   _target_: lightning.pytorch.loggers.tensorboard.TensorBoardLogger
   save_dir: "${paths.output_dir}/tensorboard/"
-  name: null
+  name: ddpm_wavenet # ログfolder名
   log_graph: False
-  default_hp_metric: True
+  default_hp_metric: False
   prefix: ""
-  # version: ""
+  version: null

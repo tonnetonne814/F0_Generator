@@ -1,13 +1,17 @@
 from typing import Any, Dict, List, Optional, Tuple
-
+import argparse
 import hydra
-import torch
-import lightning as L
 import rootutils
+import lightning as L
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
+# 警告非表示
+import warnings
+warnings.filterwarnings(action='ignore')
+
+# get root
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
 # the setup_root above is equivalent to:
@@ -26,7 +30,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # more info: https://github.com/ashleve/rootutils
 # ------------------------------------------------------------------------------------ #
 
-from source.utils import (
+from source.utils.training_utils import (
     RankedLogger,
     extras,
     get_metric_value,
@@ -37,7 +41,6 @@ from source.utils import (
 )
 
 log = RankedLogger(__name__, rank_zero_only=True)
-
 
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -56,9 +59,11 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
+    #dataset = TemplateDataloaderModule(cfg) # Hydra無
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = hydra.utils.instantiate(cfg.model)
+    #model = TemplateModelModule(cfg) # Hydra無
 
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
@@ -104,8 +109,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     return metric_dict, object_dict
 
-
-@hydra.main(version_base="1.3", config_path="/home/workdir/configs/", config_name="train.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
     """Main entry point for training.
 
@@ -127,6 +130,18 @@ def main(cfg: DictConfig) -> Optional[float]:
     # return optimized metric
     return metric_value
 
-
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config_path',
+                        type=str,
+                        #required=True,
+                        default="/home/workdir/configs/")
+    parser.add_argument('--config_name',
+                        type=str,
+                        #required=True,
+                        default="train.yaml")
+    args = parser.parse_args()
+
+    hydra_main = hydra.main(version_base="1.3", config_path=args.config_path, config_name=args.config_name)
+    hydra_main(main)()

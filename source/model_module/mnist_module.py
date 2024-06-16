@@ -56,9 +56,12 @@ class MNISTLitModule(LightningModule):
 
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
-        self.save_hyperparameters(logger=False)
+        # self.save_hyperparameters(logger=False)
 
         self.net = net
+        self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.is_compile = compile
 
         # loss function
         self.criterion = torch.nn.CrossEntropyLoss()
@@ -186,9 +189,8 @@ class MNISTLitModule(LightningModule):
 
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
-        if self.hparams.compile and stage == "fit":
+        if self.is_compile and stage == "fit":
             self.net = torch.compile(self.net)
-
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
         Normally you'd need one. But in the case of GANs or similar you might have multiple.
@@ -198,9 +200,9 @@ class MNISTLitModule(LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
-        if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(optimizer=optimizer)
+        optimizer = self.optimizer(params=self.trainer.model.parameters())
+        if self.scheduler is not None:
+            scheduler = self.scheduler(optimizer=optimizer)
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
@@ -211,7 +213,6 @@ class MNISTLitModule(LightningModule):
                 },
             }
         return {"optimizer": optimizer}
-
 
 if __name__ == "__main__":
     _ = MNISTLitModule(None, None, None, None)

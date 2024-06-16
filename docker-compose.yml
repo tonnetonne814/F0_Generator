@@ -3,7 +3,7 @@ version: '3'
 services:
   dev: # ImageName="フォルダ名-dev"のdevの部分
     build: .
-    container_name: exp # これがコンテナ名になる。
+    container_name: f0_exp # これがコンテナ名になる。
     expose:
       - "8888"
     ports:
@@ -11,7 +11,7 @@ services:
     tty: True # 落ちないように
     command: "/bin/bash"
     volumes:
-      - .:/home/workdir/
+      - .:/home/user/project
     # environment: # これは無くても問題ない
     #   - "NVIDIA_VISIBLE_DEVICES=all"
     #   - "NVIDIA_DRIVER_CAPABILITIES=all"
@@ -19,6 +19,6 @@ services:
       resources:
         reservations:
           devices:
-            - driver: nvidia 
+            - driver: nvidia
               capabilities:
               - gpu
