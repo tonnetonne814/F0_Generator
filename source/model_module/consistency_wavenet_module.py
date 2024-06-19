@@ -5,7 +5,7 @@ from source.utils.plot_utils import generate_graph, generate_graph_overwrite
 from source.utils.audio_utils.commons import clip_grad_value_
 from source.utils.audio_utils.f0_extractor import f0_exchange
 
-class DDPMWaveNetModule(LightningModule):
+class ConsistencyWaveNetModule(LightningModule):
     """Example of a `LightningModule`.
 
     A `LightningModule` implements 8 key methods:
@@ -62,6 +62,18 @@ class DDPMWaveNetModule(LightningModule):
         self.is_compile = compile
         self.valid_sampling_in_n_epoch = valid_sampling_in_n_epoch
 
+    def optimizer_step(self, *args, **kwargs) -> None:
+        super().optimizer_step(*args, **kwargs)
+        global_step = self.trainer.global_step
+        estimated_stepping_batches = self.trainer.estimated_stepping_batches
+        ema_decay = self.net_g.consistency.ema_update(
+                                model = self.net_g.noise_predictor,
+                                model_ema = self.net_g.ema,
+                                global_step = global_step,
+                                estimated_stepping_batches = estimated_stepping_batches
+                                )
+        self.log("train/ema_decay", ema_decay, on_step=True, on_epoch=False, prog_bar=False)
+
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
         # by default lightning executes validation step sanity checks before training starts,
@@ -88,19 +100,25 @@ class DDPMWaveNetModule(LightningModule):
         noteID,         noteID_lengths,\
         speakerID, _ = batch
 
+        global_step = self.trainer.global_step
+        estimated_stepping_batches = self.trainer.estimated_stepping_batches
+
         if f0.device.type == "cpu":
           pass
 
-        loss_f0 = self.net_g(f0         = f0,
-                             f0_len     = f0_lengths,
-                             IDs        = ph_IDs,
-                             IDs_len    = ph_IDs_lengths,
-                             IDs_dur    = ph_frame_dur,
-                             NoteIDs    = noteID,
+        loss_CT = self.net_g(f0 = f0,
+                             f0_len = f0_lengths,
+                             IDs = ph_IDs,
+                             IDs_len = ph_IDs_lengths,
+                             IDs_dur = ph_frame_dur,
+                             NoteIDs = noteID,
                              NoteID_len = noteID_lengths,
-                             g          = speakerID)
+                             g = speakerID,
+                             global_step = global_step,
+                             estimated_stepping_batches = estimated_stepping_batches
+                             )
 
-        return loss_f0
+        return loss_CT
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -135,13 +153,14 @@ class DDPMWaveNetModule(LightningModule):
         ########################
         # return None
 
-        loss_f0 = self.model_step(batch)
-        self.log("train/f0_MSE_Loss", loss_f0, on_step=True, on_epoch=True, prog_bar=False)
+        loss_CT, bins = self.model_step(batch)
+        self.log("train/loss_CT", loss_CT, on_step=True, on_epoch=True, prog_bar=False)
+        self.log("train/bins", bins, on_step=True, on_epoch=True, prog_bar=False)
 
         # .zero_grad()する前に行う
         self.log("gradient_norm/generator", clip_grad_value_(self.net_g.parameters(), None),\
                                                 on_step=True, on_epoch=True, prog_bar=False)
-        return loss_f0
+        return loss_CT
 
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a Training Epoch Ends."
@@ -173,14 +192,13 @@ class DDPMWaveNetModule(LightningModule):
         # self.net_B.train() #GAN
 
         self.val_batch = batch # 最終時の試し生成の結果見る用
-        loss_f0 = self.model_step(batch)
-        self.log("val/f0_MSE_Loss", loss_f0, on_step=False, on_epoch=True, prog_bar=False)
+        loss_CT, bins = self.model_step(batch)
+        self.log("val/loss_CT", loss_CT, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val/bins", bins, on_step=True, on_epoch=True, prog_bar=False)
 
         # このロスに基づいてschedulerが動く
-        self.log("monitor", loss_f0, on_step=False, on_epoch=True, prog_bar=True)
-
+        self.log("monitor", loss_CT, on_step=False, on_epoch=True, prog_bar=True)
         pass
-
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a Validation Epoch Ends."
@@ -188,7 +206,7 @@ class DDPMWaveNetModule(LightningModule):
         epoch = self.current_epoch
         global_step = self.global_step
         if epoch % self.valid_sampling_in_n_epoch == 0:
-            print(f"Try Sampling... Epoch:{epoch} GlobalStep:{global_step}")
+            # print(f"Try Sampling... Epoch:{epoch} GlobalStep:{global_step}")
             f0_gt=self.val_batch[0][0][0].view(1, 1,-1)
             f0_gt_len=self.val_batch[1][0].view(-1)
             ph_IDs=self.val_batch[2][0].view(1,-1)

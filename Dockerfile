@@ -25,7 +25,7 @@ ENV DEBIAN_FRONTEND="noninteractive"
 ################
 
 # pyenv全体設定 # ref https://blog.8tak4.com/post/158052756945/dockerfile-pyenv
-ENV HOME /home/user/project
+ENV HOME /home/user
 ENV PYENV_ROOT /home/user/.pyenv
 ### shimsが無いとpythonが通らない https://qiita.com/makuramoto1/items/b5aa08d5fc1ce6af0fb4
 ENV PATH $PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH

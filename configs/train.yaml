@@ -4,8 +4,8 @@
 # order of defaults determines the order in which configs override each other
 defaults:
   - _self_
-  - data: ddpm_wavenet
-  - model: ddpm_wavenet
+  - data: NamineRitsu
+  - model: consistency_wavenet # [ddpm_wavenet, consistency_wavenet]
   - callbacks: default
   - logger: tensorboard # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: gpu # ここでCPUGPU切り替え default==cpu

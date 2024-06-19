@@ -173,7 +173,8 @@ class AudioTextF0_Dataset(torch.utils.data.Dataset):
                 torch.tensor(ph_frame_dur,              dtype=torch.int64),
                 #torch.tensor(word_dur_ms,               dtype=torch.float32) / 1000, # ここで秒になる
                 torch.tensor(noteID,                    dtype=torch.float32) ,       # maskを0とする。z
-                torch.tensor(speakerID,                 dtype=torch.int64)  )
+                torch.tensor(speakerID,                 dtype=torch.int64)  ,
+                basepath)
 
     def __getitem__(self, index):
         return self.get_item(self.basepath_list[index])
@@ -203,7 +204,7 @@ class AudioTextF0_Collater():
         spkids                  = torch.LongTensor(len(batch))
 
         f0_padded               = torch.FloatTensor(len(batch), max_f0_len)
-        #vuv_padded              = torch.LongTensor(len(batch),  max_vuv_len) 
+        #vuv_padded              = torch.LongTensor(len(batch),  max_vuv_len)
         ph_IDs_padded           = torch.LongTensor(len(batch),   max_ph_IDs_len)
         ph_frame_dur_padded     = torch.LongTensor(len(batch),   max_ph_frame_dur_len)
         noteID_padded           = torch.FloatTensor(len(batch), max_noteID_len)
@@ -213,6 +214,7 @@ class AudioTextF0_Collater():
         ph_frame_dur_padded.zero_()
         noteID_padded.zero_()
         spkids.zero_()
+        basepaths = list()
 
         for i in range(len(ids_sorted_decreasing)):
             row = batch[ids_sorted_decreasing[i]]
@@ -238,7 +240,7 @@ class AudioTextF0_Collater():
             noteID_lengths[i] = noteID.size(0)
 
             spkids[i] = row[4]
-
+            basepaths.append(row[5])
 
         # 次元調整
         f0_padded = torch.unsqueeze(f0_padded, dim=1)
@@ -249,10 +251,12 @@ class AudioTextF0_Collater():
                     ph_frame_dur_padded,                            \
                     noteID_padded,          noteID_lengths,         \
                     spkids,                                   \
+                    basepaths,\
                     ids_sorted_decreasing
 
         return  f0_padded,              f0_lengths,             \
                 ph_IDs_padded,          ph_IDs_lengths,         \
                 ph_frame_dur_padded,                            \
                 noteID_padded,          noteID_lengths,         \
-                spkids
+                spkids,\
+                basepaths

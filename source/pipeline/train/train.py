@@ -59,11 +59,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
-    #dataset = TemplateDataloaderModule(cfg) # Hydra無
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = hydra.utils.instantiate(cfg.model)
-    #model = TemplateModelModule(cfg) # Hydra無
 
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
@@ -99,7 +97,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         if ckpt_path == "":
             log.warning("Best ckpt not found! Using current weights for testing...")
             ckpt_path = None
-        trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+        trainer.test( model=model, datamodule=datamodule, ckpt_path=ckpt_path)
         log.info(f"Best ckpt path: {ckpt_path}")
 
     test_metrics = trainer.callback_metrics
@@ -133,15 +131,15 @@ def main(cfg: DictConfig) -> Optional[float]:
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_path',
+    parser.add_argument('--config-path',
                         type=str,
                         #required=True,
-                        default="/home/workdir/configs/")
-    parser.add_argument('--config_name',
+                        default="/home/user/project/configs/")
+    parser.add_argument('--config-name',
                         type=str,
                         #required=True,
                         default="train.yaml")
     args = parser.parse_args()
 
-    hydra_main = hydra.main(version_base="1.3", config_path=args.config_path, config_name=args.config_name)
+    hydra_main = hydra.main(version_base="1.3", config_path=str(args.config_path), config_name=str(args.config_name))
     hydra_main(main)()

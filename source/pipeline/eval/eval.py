@@ -84,7 +84,6 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     return metric_dict, object_dict
 
-
 def main(cfg: DictConfig) -> None:
     """Main entry point for evaluation.
 
@@ -99,11 +98,11 @@ def main(cfg: DictConfig) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_path',
+    parser.add_argument('--config-path',
                         type=str,
                         #required=True,
-                        default="/home/workdir/configs/")
-    parser.add_argument('--config_name',
+                        default="/home/user/project/configs/")
+    parser.add_argument('--config-name',
                         type=str,
                         #required=True,
                         default="eval.yaml")

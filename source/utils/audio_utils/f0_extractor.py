@@ -1,6 +1,6 @@
 import os
 import soundfile as sf
-import librosa 
+import librosa
 import numpy as np
 from typing import Optional,Union
 try:
@@ -13,7 +13,7 @@ import torchcrepe
 from torch import nn
 from torch.nn import functional as F
 import scipy
-import numpy 
+import numpy
 import pyworld
 import os
 import torch.utils.data
@@ -25,10 +25,10 @@ import matplotlib.pyplot as plt
 
 import os
 import soundfile as sf
-import librosa 
+import librosa
 import numpy as np
 from torchaudio.functional import resample
-    
+
 MAX_WAV_VALUE = 32768.0
 
 f0_bin = 256
@@ -42,7 +42,6 @@ class F0_extractor(object):
         self.device = device
         self.fs = samplerate
         self.hop = hop_size
-        
         self.f0_bin = f0_bin
         self.f0_max = f0_max
         self.f0_min = f0_min
@@ -61,7 +60,6 @@ class F0_extractor(object):
                 print(f"[WARNING] Detected a discrepancy between the input audio sampling rate and the target sampling rate.")
                 self.alert = True
         x = x[0].to('cpu').detach().numpy().copy()
-        
         if f0_method == "rmvpe":
             if hasattr(self, "model_rmvpe") == False:
                 self.model_dir = "model_data"
@@ -173,13 +171,13 @@ def normalize_f0(f0, x_mask, uv, random_scale=True):
     return f0_norm * x_mask
 
 def compute_f0_uv_torchcrepe(wav_numpy, p_len=None, sampling_rate=44100, hop_length=512,device=None,cr_threshold=0.05):
-    
+
     x = wav_numpy
     if p_len is None:
         p_len = x.shape[0]//hop_length
     else:
         assert abs(p_len-x.shape[0]//hop_length) < 4, "pad length error"
-    
+
     F0Creper = CrepePitchExtractor(hop_length=hop_length,f0_min=f0_min,f0_max=f0_max,device=device,threshold=cr_threshold)
     f0,uv = F0Creper(x[None,:].float(),sampling_rate,pad_to=p_len)
     return f0,uv
@@ -394,7 +392,7 @@ def plot_spectrogram_to_numpy(spectrogram, count=0):
     mpl_logger.setLevel(logging.WARNING)
   import matplotlib.pylab as plt
   import numpy as np
-  
+
   fig, ax = plt.subplots(figsize=(10,2))
   im = ax.imshow(spectrogram, aspect="auto", origin="lower",
                   interpolation='none')
@@ -438,7 +436,7 @@ def compute_f0_torchcrepe(wav_numpy, p_len=None, sampling_rate=44100, hop_length
         p_len = x.shape[0]//hop_length
     else:
         assert abs(p_len-x.shape[0]//hop_length) < 4, "pad length error"
-    
+
     x = torch.from_numpy(x.astype(numpy.float32)).clone()
     F0Creper = CrepePitchExtractor(hop_length=hop_length,f0_min=f0_min,f0_max=f0_max,device=device,threshold=cr_threshold)
     f0,uv = F0Creper(x[None,:].float(),sampling_rate,pad_to=p_len)
@@ -451,7 +449,7 @@ def compute_f0_harvest(wav_numpy, p_len=None, sampling_rate=44100, hop_length=51
         p_len = x.shape[0]//hop_length
     else:
         assert abs(p_len-x.shape[0]//hop_length) < 4, "pad length error"
-    
+
     f0, t = pyworld.harvest(
         x.astype(numpy.double),
         fs=sampling_rate,
@@ -866,13 +864,47 @@ class CrepePitchExtractor(BasePitchExtractor):
         if torch.all(f0 == 0):
             rtn = f0.cpu().numpy() if pad_to==None else numpy.zeros(pad_to)
             return rtn,rtn
-        
+
         return self.post_process(x, sampling_rate, f0, pad_to)
 
+import pyworld as pw
+def f0_exchange(audio_path, target_f0_np):
+    if np.max(target_f0_np) > 3000:
+        print(f"生成したf0の値の最大値が3000Hzを超えています。超えた箇所は3000Hzに固定します。")
+    target_f0_np =  np.clip(target_f0_np, 0, 3000)
 
+    data, fs = sf.read(audio_path)
+    hop_len = 512
+    frame_period = 1000*hop_len/fs # 1フレームのミリ秒
 
+    _, t = pw.dio(x=data, fs=int(fs), frame_period=float(frame_period))
+
+    data_length =int(hop_len*int(target_f0_np.shape[0]))
+    t_len = len(target_f0_np)
+    # print(f"x.shape: {data.shape}")
+    # print(data_length)
+    # print(f"f0.shape: {target_f0_np.shape}")
+    # print(f"t.shape: {t[:t_len].shape}")
+    # print(f"fs: {fs}")
+    sp = pw.cheaptrick(x=np.array(data[:data_length], dtype=np.float64),
+                       f0=np.array(target_f0_np, dtype=np.float64),
+                       temporal_positions=np.array(t[:t_len], dtype=np.float64),
+                       fs=int(fs),
+                       )
+    ap = pw.d4c(x=np.array(data, dtype=np.float64),
+                f0=np.array(target_f0_np, dtype=np.float64),
+                temporal_positions=np.array(t[:t_len], dtype=np.float64),
+                fs=int(fs),
+                )
+    synthesized =  pw.synthesize(f0=np.array(target_f0_np, dtype=np.float64),
+                                 spectrogram=np.array(sp[:t_len, :], dtype=np.float64),
+                                 aperiodicity=np.array(ap[:t_len, :], dtype=np.float64),
+                                 fs=int(fs),
+                                 frame_period=frame_period)
+    return synthesized, data, fs
 if __name__ == "__main__":
-   testwav = "./basic5000\wav\BASIC5000_0001.wav"
-
-   model = F0_extractor()
-   s = model.compute_f0(path = testwav)
+    f0 = np.ones(shape=999999)
+    a,b,c = f0_exchange("data/dataset/00000.wav",f0)
+   # testwav = "./basic5000\wav\BASIC5000_0001.wav"
+   # model = F0_extractor()
+   # s = model.compute_f0(path = testwav)
