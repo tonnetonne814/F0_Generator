@@ -1,42 +1,42 @@
 import utaupy
 import music21 as m21
-import mido
 import pyopenjtalk
 import shutil
 from time import sleep
 import os
 import torch
 
-def get_midi_info(path):
-    midi = mido.MidiFile(path)
-    for tracks in midi.tracks:
-        track_name = tracks.name
+# import mido
+# def get_midi_info(path):
+#     midi = mido.MidiFile(path)
+#     for tracks in midi.tracks:
+#         track_name = tracks.name
 
-        # GET BPM
-        lines = list()
-        if track_name == "Control":
-            for track in tracks:
-                try:
-                    if "@set tempo" in track.text:
-                        _, BPM =  track.text .split("=")
-                except:
-                    pass 
-        # GET notes and dur
-        else:
-            for track in tracks:
-                try:
-                    if float(track.time) > 0:
-                        tick_dur = float(track.time)
-                        try:
-                            note = str(track.note)
-                        except:
-                            note = "rest"
-                        line = {"Note" : note, "tick_dur" : tick_dur, "ms_dur":tick2ms(float(BPM), tick_dur)}
-                        lines.append(line)
-                except:
-                    continue 
-    #print(midi)
-    return BPM, lines
+#         # GET BPM
+#         lines = list()
+#         if track_name == "Control":
+#             for track in tracks:
+#                 try:
+#                     if "@set tempo" in track.text:
+#                         _, BPM =  track.text .split("=")
+#                 except:
+#                     pass 
+#         # GET notes and dur
+#         else:
+#             for track in tracks:
+#                 try:
+#                     if float(track.time) > 0:
+#                         tick_dur = float(track.time)
+#                         try:
+#                             note = str(track.note)
+#                         except:
+#                             note = "rest"
+#                         line = {"Note" : note, "tick_dur" : tick_dur, "ms_dur":tick2ms(float(BPM), tick_dur)}
+#                         lines.append(line)
+#                 except:
+#                     continue 
+#     #print(midi)
+#     return BPM, lines
 
 def get_ust_info(path): 
 # Note Number : https://www.asahi-net.or.jp/~hb9t-ktd/music/Japan/Research/DTM/freq_map.html

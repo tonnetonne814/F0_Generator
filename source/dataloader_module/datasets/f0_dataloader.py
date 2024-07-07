@@ -184,8 +184,10 @@ class AudioTextF0_Dataset(torch.utils.data.Dataset):
 
 
 class AudioTextF0_Collater():
-    def __init__(self, return_ids=False):
+    def __init__(self, return_ids=False, return_noises=False, x16_padding=False):
         self.return_ids = return_ids
+        self.return_noises = return_noises
+        self.x16_padding = x16_padding
 
     def __call__(self, batch):
         _, ids_sorted_decreasing = torch.sort( torch.LongTensor( [x[0].size(0) for x in batch] ),dim=0, descending=True )
@@ -196,7 +198,13 @@ class AudioTextF0_Collater():
         max_ph_frame_dur_len    = max([len(x[2]) for x in batch])
         max_noteID_len          = max([len(x[3]) for x in batch])
 
+        if self.x16_padding is True:
+            remainder = int(max_f0_len) % 16
+            if remainder != 0:
+                max_f0_len = max_f0_len + (16 - remainder)
+
         f0_lengths              = torch.LongTensor(len(batch))
+        noise_lengths           = torch.LongTensor(len(batch))
         #vuv_lengths             = torch.LongTensor(len(batch))
         ph_IDs_lengths          = torch.LongTensor(len(batch))
         ph_frame_dur_lengths    = torch.LongTensor(len(batch))
@@ -204,12 +212,14 @@ class AudioTextF0_Collater():
         spkids                  = torch.LongTensor(len(batch))
 
         f0_padded               = torch.FloatTensor(len(batch), max_f0_len)
+        noise_padded            = torch.FloatTensor(len(batch), max_f0_len)
         #vuv_padded              = torch.LongTensor(len(batch),  max_vuv_len)
         ph_IDs_padded           = torch.LongTensor(len(batch),   max_ph_IDs_len)
         ph_frame_dur_padded     = torch.LongTensor(len(batch),   max_ph_frame_dur_len)
         noteID_padded           = torch.FloatTensor(len(batch), max_noteID_len)
 
         f0_padded.zero_()
+        noise_padded.zero_()
         ph_IDs_padded.zero_()
         ph_frame_dur_padded.zero_()
         noteID_padded.zero_()
@@ -223,9 +233,9 @@ class AudioTextF0_Collater():
             f0_padded[i, :f0.size(0)] = f0
             f0_lengths[i] = f0.size(0)
 
-            #vuv = row[1]
-            #vuv_padded[i, :vuv.size(0)] = vuv
-            #vuv_lengths[i] = vuv.size(0)
+            noise = torch.randn_like(f0)
+            noise_padded[i, :f0.size(0)] = noise
+            noise_lengths[i] = f0.size(0)
 
             ph_IDs = row[1]
             ph_IDs_padded[i, :ph_IDs.size(0)] = ph_IDs
@@ -244,6 +254,7 @@ class AudioTextF0_Collater():
 
         # 次元調整
         f0_padded = torch.unsqueeze(f0_padded, dim=1)
+        noise_padded = torch.unsqueeze(noise_padded, dim=1)
 
         if self.return_ids:
             return  f0_padded,              f0_lengths,             \
@@ -253,10 +264,18 @@ class AudioTextF0_Collater():
                     spkids,                                   \
                     basepaths,\
                     ids_sorted_decreasing
-
-        return  f0_padded,              f0_lengths,             \
-                ph_IDs_padded,          ph_IDs_lengths,         \
-                ph_frame_dur_padded,                            \
-                noteID_padded,          noteID_lengths,         \
-                spkids,\
-                basepaths
+        if self.return_noises is True:
+            return  f0_padded,              f0_lengths,             \
+                    ph_IDs_padded,          ph_IDs_lengths,         \
+                    ph_frame_dur_padded,                            \
+                    noteID_padded,          noteID_lengths,         \
+                    spkids,                                   \
+                    basepaths,\
+                    noise_padded, noise_lengths
+        else:
+            return  f0_padded,              f0_lengths,             \
+                    ph_IDs_padded,          ph_IDs_lengths,         \
+                    ph_frame_dur_padded,                            \
+                    noteID_padded,          noteID_lengths,         \
+                    spkids,\
+                    basepaths

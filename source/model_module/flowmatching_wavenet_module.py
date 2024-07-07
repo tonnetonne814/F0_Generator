@@ -7,7 +7,7 @@ from source.utils.audio_utils.f0_extractor import f0_exchange
 from source.model_module.consistency.consistency_processor import *
 from source.model_module.consistency.consistency_utils import *
 
-class ConsistencyWaveNetModule(LightningModule):
+class FlowMatchingWavenetModule(LightningModule):
     """Example of a `LightningModule`.
 
     A `LightningModule` implements 8 key methods:
@@ -63,10 +63,6 @@ class ConsistencyWaveNetModule(LightningModule):
         # self.scheduler_d = scheduler_d #GAN
         self.is_compile = compile
         self.valid_sampling_in_n_epoch = valid_sampling_in_n_epoch
-        self.num_timesteps = self.net_g.consistency.initial_timesteps
-        self.initial_ema_decay_rate = self.net_g.consistency.initial_ema_decay_rate
-        self.student_model_ema_decay_rate = self.net_g.consistency.student_model_ema_decay_rate
-        self.use_improved_consistency = self.net_g.consistency.use_improved_consistency
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -92,15 +88,10 @@ class ConsistencyWaveNetModule(LightningModule):
         ph_IDs,         ph_IDs_lengths,\
         ph_frame_dur,\
         noteID,         noteID_lengths,\
-        speakerID, _ = batch
+        speakerID, basepaths,\
+        noise, noise_lengths = batch
 
-        global_step = self.trainer.global_step
-        estimated_stepping_batches = self.trainer.estimated_stepping_batches
-
-        if f0.device.type == "cpu":
-          pass
-
-        outputs = self.net_g(f0 = f0,
+        return self.net_g(f0 = f0,
                              f0_len = f0_lengths,
                              IDs = ph_IDs,
                              IDs_len = ph_IDs_lengths,
@@ -108,10 +99,8 @@ class ConsistencyWaveNetModule(LightningModule):
                              NoteIDs = noteID,
                              NoteID_len = noteID_lengths,
                              g = speakerID,
-                             global_step = global_step,
-                             estimated_stepping_batches = estimated_stepping_batches
-                             )
-        return outputs
+                             noise=noise,
+                             noise_len = noise_lengths)
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -146,37 +135,74 @@ class ConsistencyWaveNetModule(LightningModule):
         ########################
         # return None
 
-        outputs = self.model_step(batch)
-
-        loss_dict = self.net_g.consistency.calc_loss(outputs=outputs)
-
-        for key, value in loss_dict.items():
-            self.log(f"train/{key}", value, on_step=True, on_epoch=True, prog_bar=False)
+        ut, vt = self.model_step(batch)
+        # Loss calculation for training
+        loss_cfm = torch.mean((vt - ut) ** 2)
+        self.log("train/loss_cfm", loss_cfm, on_step=True, on_epoch=True, prog_bar=False)
 
         # .zero_grad()する前に行う
         self.log("gradient_norm/generator", clip_grad_value_(self.net_g.parameters(), None),\
                                                 on_step=True, on_epoch=True, prog_bar=False)
-        return loss_dict["all_loss"]
+        self.train_batch = batch # 最終時の試し生成の結果見る用
+        return loss_cfm
 
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a Training Epoch Ends."
 
-        # Update teacher model
-        if self.use_improved_consistency is False:
-            ema_decay_rate = ema_decay_rate_schedule(
-                self.num_timesteps,
-                self.initial_ema_decay_rate,
-                self.num_timesteps,
-            )
-            update_ema_model_(self.net_g.teacher_model, self.net_g.student_model, ema_decay_rate)
-            self.log_dict({"ema_decay_rate": ema_decay_rate})
+        epoch = self.current_epoch
+        global_step = self.global_step
+        if epoch % self.valid_sampling_in_n_epoch == 0:
+            # print(f"Try Sampling... Epoch:{epoch} GlobalStep:{global_step}")
+            f0_gt=self.train_batch[0][0][0].view(1, 1,-1)
+            f0_gt_len=self.train_batch[1][0].view(-1)
+            ph_IDs=self.train_batch[2][0].view(1,-1)
+            ph_IDs_len=self.train_batch[3][0].view(-1)
+            ph_IDs_dur=self.train_batch[4][0].view(1,-1)
+            NoteIDs=self.train_batch[5][0].view(1,-1)
+            NoteID_len=self.train_batch[6][0].view(-1)
+            speakerID=self.train_batch[7][0].view(-1)
+            basepath = self.train_batch[8][0]
 
-        # Update EMA student model
-        update_ema_model_(
-            self.net_g.ema_student_model,
-            self.net_g.student_model,
-            self.student_model_ema_decay_rate,
-        )
+            f0_pd_dict = self.net_g.sampling_euler(IDs=ph_IDs,
+                                                   IDs_len=ph_IDs_len,
+                                                   IDs_dur=ph_IDs_dur,
+                                                   NoteIDs = NoteIDs,
+                                                   NoteID_len = NoteID_len,
+                                                   g=speakerID,
+                                                   t_start=0.0, t_end=1.0, n_timesteps=1000)
+
+            for key, value in f0_pd_dict.items():
+                f0_pd = value
+                self.log(f"train/f0_RMSE_{key}", torch.sqrt(torch.nn.functional.mse_loss(f0_pd, f0_gt)), on_step=False, on_epoch=True, prog_bar=False)
+
+                f0_pd_np = f0_pd[0][0].to('cpu').detach().numpy().copy()
+                f0_gt_np = f0_gt[0][0].to('cpu').detach().numpy().copy()
+
+                f0_pd_image= generate_graph(vector=f0_pd_np ,
+                                            label=f"F0 pd {key}",
+                                            color="blue",
+                                            x_label = 'Frames',
+                                            y_label = "Hz")
+
+                f0_gtpd_image = generate_graph_overwrite(vector1=f0_gt_np,
+                                                        vector2=f0_pd_np,
+                                                        title="Comparison",
+                                                        x_label = 'Frames',
+                                                        y_label = "Hz")
+                self.logger.experiment.add_image(f"train/f0_pd_{key}", torch.from_numpy(f0_pd_image).clone().permute(2, 0, 1), epoch)
+                self.logger.experiment.add_image(f"train/f0_gt-pd_{key}", torch.from_numpy(f0_gtpd_image).clone().permute(2, 0, 1), epoch)
+
+                audio_f0pd, audio_original, fs = f0_exchange(basepath+".wav", f0_pd_np)
+                self.logger.experiment.add_audio(f"train/f0_replaced_{key}", audio_f0pd, epoch, fs)
+            if global_step == 0:
+                f0_gt_image= generate_graph(vector=f0_gt_np,
+                                            label="F0 gt",
+                                            color="red",
+                                            x_label='Frames',
+                                            y_label="Hz")
+                self.logger.experiment.add_image('train/f0_gt', torch.from_numpy(f0_gt_image).clone().permute(2, 0, 1), self.current_epoch)
+                self.logger.experiment.add_audio("train/gt_audio", audio_original, epoch, fs)
+
 
         optimizer_g = self.optimizers()
         last_lr = optimizer_g.optimizer.param_groups[0]["lr"]
@@ -206,15 +232,13 @@ class ConsistencyWaveNetModule(LightningModule):
         # self.net_B.train() #GAN
 
         self.val_batch = batch # 最終時の試し生成の結果見る用
-        outputs = self.model_step(batch)
-
-        loss_dict = self.net_g.consistency.calc_loss(outputs=outputs)
-
-        for key, value in loss_dict.items():
-            self.log(f"val/{key}", value, on_step=True, on_epoch=True, prog_bar=False)
+        ut, vt = self.model_step(batch)
+        # Loss calculation for training
+        loss_cfm = torch.mean((vt - ut) ** 2)
+        self.log("val/loss_cfm", loss_cfm, on_step=True, on_epoch=True, prog_bar=False)
 
         # このロスに基づいてschedulerが動く
-        self.log("monitor", loss_dict["all_loss"], on_step=False, on_epoch=True, prog_bar=True)
+        self.log("monitor", loss_cfm, on_step=False, on_epoch=True, prog_bar=True)
 
 
     def on_validation_epoch_end(self) -> None:
@@ -234,8 +258,14 @@ class ConsistencyWaveNetModule(LightningModule):
             speakerID=self.val_batch[7][0].view(-1)
             basepath = self.val_batch[8][0]
 
-            f0_pd_dict = self.net_g.sampling(condition=[ph_IDs, ph_IDs_len, ph_IDs_dur,
-                                        NoteIDs, NoteID_len, None, speakerID])
+            f0_pd_dict = self.net_g.sampling_euler(IDs=ph_IDs,
+                                                   IDs_len=ph_IDs_len,
+                                                   IDs_dur=ph_IDs_dur,
+                                                   NoteIDs = NoteIDs,
+                                                   NoteID_len = NoteID_len,
+                                                   g=speakerID,
+                                                   t_start=0.0, t_end=1.0, n_timesteps=1000)
+
             for key, value in f0_pd_dict.items():
                 f0_pd = value
                 self.log(f"val/f0_RMSE_{key}", torch.sqrt(torch.nn.functional.mse_loss(f0_pd, f0_gt)), on_step=False, on_epoch=True, prog_bar=False)
@@ -248,6 +278,7 @@ class ConsistencyWaveNetModule(LightningModule):
                                             color="blue",
                                             x_label = 'Frames',
                                             y_label = "Hz")
+
                 f0_gtpd_image = generate_graph_overwrite(vector1=f0_gt_np,
                                                         vector2=f0_pd_np,
                                                         title="Comparison",
@@ -266,7 +297,6 @@ class ConsistencyWaveNetModule(LightningModule):
                                             y_label="Hz")
                 self.logger.experiment.add_image('val/f0_gt', torch.from_numpy(f0_gt_image).clone().permute(2, 0, 1), self.current_epoch)
                 self.logger.experiment.add_audio("val/gt_audio", audio_original, epoch, fs)
-
 
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
@@ -366,7 +396,7 @@ class ConsistencyWaveNetModule(LightningModule):
         """
 
         # Single Model #
-        optimizer_g = self.optimizer_g(params=self.trainer.model.net_g.student_model.parameters()) # モデルの全てのパラメータを渡す
+        optimizer_g = self.optimizer_g(params=self.trainer.model.parameters()) # モデルの全てのパラメータを渡す
         if self.scheduler_g is not None:
             scheduler_g = self.scheduler_g(optimizer=optimizer_g)
             return {

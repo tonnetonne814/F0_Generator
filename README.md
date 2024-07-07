@@ -8,6 +8,9 @@ docker compose up -d
 docker exec -it f0_exp /bin/bash
 poetry install
 source .venv/bin/activate
+git clone https://github.com/Dao-AILab/flash-attention.git
+cd flash-attention
+python setup.py install
 ```
 
 ## データ処理

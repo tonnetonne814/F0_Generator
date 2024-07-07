@@ -111,6 +111,7 @@ class ConsistencyWaveNetModule(LightningModule):
                              global_step = global_step,
                              estimated_stepping_batches = estimated_stepping_batches
                              )
+
         return outputs
 
     def training_step(
@@ -147,7 +148,7 @@ class ConsistencyWaveNetModule(LightningModule):
         # return None
 
         outputs = self.model_step(batch)
-
+        self.train_batch = batch
         loss_dict = self.net_g.consistency.calc_loss(outputs=outputs)
 
         for key, value in loss_dict.items():
@@ -184,6 +185,46 @@ class ConsistencyWaveNetModule(LightningModule):
 
         log_dir = self.logger.log_dir.replace("tensorboard/version_0", "checkpoints")
         self.trainer.save_checkpoint(filepath=os.path.join(log_dir, "last_epoch.ckpt"))
+
+        epoch = self.current_epoch
+        global_step = self.global_step
+        if epoch % self.valid_sampling_in_n_epoch == 0:
+            # print(f"Try Sampling... Epoch:{epoch} GlobalStep:{global_step}")
+            f0_gt=self.train_batch[0][0][0].view(1, 1,-1)
+            f0_gt_len=self.train_batch[1][0].view(-1)
+            ph_IDs=self.train_batch[2][0].view(1,-1)
+            ph_IDs_len=self.train_batch[3][0].view(-1)
+            ph_IDs_dur=self.train_batch[4][0].view(1,-1)
+            NoteIDs=self.train_batch[5][0].view(1,-1)
+            NoteID_len=self.train_batch[6][0].view(-1)
+            speakerID=self.train_batch[7][0].view(-1)
+            basepath = self.train_batch[8][0]
+
+            f0_pd_dict = self.net_g.sampling(condition=[ph_IDs, ph_IDs_len, ph_IDs_dur,
+                                        NoteIDs, NoteID_len, None, speakerID])
+            for key, value in f0_pd_dict.items():
+                f0_pd = value
+                self.log(f"train/f0_RMSE_{key}", torch.sqrt(torch.nn.functional.mse_loss(f0_pd, f0_gt)), on_step=False, on_epoch=True, prog_bar=False)
+
+                f0_pd_np = f0_pd[0][0].to('cpu').detach().numpy().copy()
+                f0_gt_np = f0_gt[0][0].to('cpu').detach().numpy().copy()
+
+                f0_pd_image= generate_graph(vector=f0_pd_np ,
+                                            label=f"F0 pd {key}",
+                                            color="blue",
+                                            x_label = 'Frames',
+                                            y_label = "Hz")
+                f0_gtpd_image = generate_graph_overwrite(vector1=f0_gt_np,
+                                                        vector2=f0_pd_np,
+                                                        title="Comparison",
+                                                        x_label = 'Frames',
+                                                        y_label = "Hz")
+                self.logger.experiment.add_image(f"train/f0_pd_{key}", torch.from_numpy(f0_pd_image).clone().permute(2, 0, 1), epoch)
+                self.logger.experiment.add_image(f"train/f0_gt-pd_{key}", torch.from_numpy(f0_gtpd_image).clone().permute(2, 0, 1), epoch)
+
+                audio_f0pd, audio_original, fs = f0_exchange(basepath+".wav", f0_pd_np)
+                self.logger.experiment.add_audio(f"train/f0_replaced_{key}", audio_f0pd, epoch, fs)
+
         pass
 
     def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
@@ -366,7 +407,7 @@ class ConsistencyWaveNetModule(LightningModule):
         """
 
         # Single Model #
-        optimizer_g = self.optimizer_g(params=self.trainer.model.net_g.student_model.parameters()) # モデルの全てのパラメータを渡す
+        optimizer_g = self.optimizer_g(params=self.trainer.model.parameters()) # モデルの全てのパラメータを渡す
         if self.scheduler_g is not None:
             scheduler_g = self.scheduler_g(optimizer=optimizer_g)
             return {

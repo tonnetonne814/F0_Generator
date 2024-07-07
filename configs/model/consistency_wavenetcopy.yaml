@@ -1,0 +1,65 @@
+_target_: source.model_module.consistency_wavenet_modulecopy.ConsistencyWaveNetModule
+
+optimizer_g:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 2e-4
+  betas: [0.8, 0.99]
+  eps : 1e-9
+
+scheduler_g:
+  _target_: torch.optim.lr_scheduler.ExponentialLR
+  _partial_: true
+  gamma: 0.999875 # lr_decay
+
+net_g:     #source.model_module.models.consistency_wavenet.ConsistencyModels
+  _target_: source.model_module.models.consistency_wavenetcopy.ConsistencyModels
+  hps:
+    f0:
+      max : 1100
+      min : 65
+    Consistency:
+      LOSS_FN : L2 #[L1, L2] (LPIPSは画像系なのでF0生成には使えない)
+      data_std : 0.5
+      time_min : 0.002
+      time_max : 80.0
+      bins_min : 2 # timesteps
+      bins_max : 150
+      bins_rho : 7
+      initial_ema_decay : 0.9
+      sample_steps : 1
+      is_distill : False # CD未実装
+      is_denoise_clip : True
+    NoisePredictor:
+      vocab_size : 256
+      out_channels : 1
+      inner_channels : 192
+      WN_in_channels : 1          # 固定で
+      WN_kernel_size : 5          # 固定で
+      WN_dilation_rate : 1        # 固定で
+      WN_n_layers : 16            # 固定で
+      WN_p_dropout : 0            # 固定で
+      Attn_filter_channels : 256
+      Attn_n_layers : 6
+      Attn_n_heads : 2
+      Attn_kernel_size : 3
+      Attn_p_dropout : 0.1
+      Diff_step_embed_in : 128
+      Diff_step_embed_mid : 512
+      Diff_step_embed_out : 512
+      n_speakers : 1
+    NoteEncoder :
+      n_note : 127
+      hidden_channels : 192
+
+# GAN等、ここで書いたら、moduleにも書き直す
+# net_d:
+#   _target_: source.model_module.models.ddpm_wavenet.DiffusionDiscriminator
+#   hps:
+#     f0:
+#       max : 1100
+#       min : 65
+
+# compile model for faster training with pytorch 2.0
+compile: false
+valid_sampling_in_n_epoch : 10

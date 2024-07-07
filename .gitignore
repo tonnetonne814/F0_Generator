@@ -3,6 +3,8 @@ logs/
 data/「波音リツ」歌声データベースVer2/
 data/dataset/
 data/MNIST/
+nohup_logs.out
+backup_logs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

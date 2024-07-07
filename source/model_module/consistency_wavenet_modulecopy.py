@@ -4,8 +4,6 @@ from lightning import LightningModule
 from source.utils.plot_utils import generate_graph, generate_graph_overwrite
 from source.utils.audio_utils.commons import clip_grad_value_
 from source.utils.audio_utils.f0_extractor import f0_exchange
-from source.model_module.consistency.consistency_processor import *
-from source.model_module.consistency.consistency_utils import *
 
 class ConsistencyWaveNetModule(LightningModule):
     """Example of a `LightningModule`.
@@ -63,10 +61,18 @@ class ConsistencyWaveNetModule(LightningModule):
         # self.scheduler_d = scheduler_d #GAN
         self.is_compile = compile
         self.valid_sampling_in_n_epoch = valid_sampling_in_n_epoch
-        self.num_timesteps = self.net_g.consistency.initial_timesteps
-        self.initial_ema_decay_rate = self.net_g.consistency.initial_ema_decay_rate
-        self.student_model_ema_decay_rate = self.net_g.consistency.student_model_ema_decay_rate
-        self.use_improved_consistency = self.net_g.consistency.use_improved_consistency
+
+    def optimizer_step(self, *args, **kwargs) -> None:
+        super().optimizer_step(*args, **kwargs)
+        global_step = self.trainer.global_step
+        estimated_stepping_batches = self.trainer.estimated_stepping_batches
+        ema_decay = self.net_g.consistency.ema_update(
+                                model = self.net_g.noise_predictor,
+                                model_ema = self.net_g.ema,
+                                global_step = global_step,
+                                estimated_stepping_batches = estimated_stepping_batches
+                                )
+        self.log("train/ema_decay", ema_decay, on_step=True, on_epoch=False, prog_bar=False)
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -100,7 +106,7 @@ class ConsistencyWaveNetModule(LightningModule):
         if f0.device.type == "cpu":
           pass
 
-        outputs = self.net_g(f0 = f0,
+        loss_CT = self.net_g(f0 = f0,
                              f0_len = f0_lengths,
                              IDs = ph_IDs,
                              IDs_len = ph_IDs_lengths,
@@ -111,7 +117,8 @@ class ConsistencyWaveNetModule(LightningModule):
                              global_step = global_step,
                              estimated_stepping_batches = estimated_stepping_batches
                              )
-        return outputs
+
+        return loss_CT
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -146,38 +153,17 @@ class ConsistencyWaveNetModule(LightningModule):
         ########################
         # return None
 
-        outputs = self.model_step(batch)
-
-        loss_dict = self.net_g.consistency.calc_loss(outputs=outputs)
-
-        for key, value in loss_dict.items():
-            self.log(f"train/{key}", value, on_step=True, on_epoch=True, prog_bar=False)
+        loss_CT, bins = self.model_step(batch)
+        self.log("train/loss_CT", loss_CT, on_step=True, on_epoch=True, prog_bar=False)
+        self.log("train/bins", bins, on_step=True, on_epoch=True, prog_bar=False)
 
         # .zero_grad()する前に行う
         self.log("gradient_norm/generator", clip_grad_value_(self.net_g.parameters(), None),\
                                                 on_step=True, on_epoch=True, prog_bar=False)
-        return loss_dict["all_loss"]
+        return loss_CT
 
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a Training Epoch Ends."
-
-        # Update teacher model
-        if self.use_improved_consistency is False:
-            ema_decay_rate = ema_decay_rate_schedule(
-                self.num_timesteps,
-                self.initial_ema_decay_rate,
-                self.num_timesteps,
-            )
-            update_ema_model_(self.net_g.teacher_model, self.net_g.student_model, ema_decay_rate)
-            self.log_dict({"ema_decay_rate": ema_decay_rate})
-
-        # Update EMA student model
-        update_ema_model_(
-            self.net_g.ema_student_model,
-            self.net_g.student_model,
-            self.student_model_ema_decay_rate,
-        )
-
         optimizer_g = self.optimizers()
         last_lr = optimizer_g.optimizer.param_groups[0]["lr"]
         self.log("optimizer_g/lr [x10^4]", last_lr*10000, on_step=False, on_epoch=True, prog_bar=False)
@@ -206,16 +192,13 @@ class ConsistencyWaveNetModule(LightningModule):
         # self.net_B.train() #GAN
 
         self.val_batch = batch # 最終時の試し生成の結果見る用
-        outputs = self.model_step(batch)
-
-        loss_dict = self.net_g.consistency.calc_loss(outputs=outputs)
-
-        for key, value in loss_dict.items():
-            self.log(f"val/{key}", value, on_step=True, on_epoch=True, prog_bar=False)
+        loss_CT, bins = self.model_step(batch)
+        self.log("val/loss_CT", loss_CT, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val/bins", bins, on_step=True, on_epoch=True, prog_bar=False)
 
         # このロスに基づいてschedulerが動く
-        self.log("monitor", loss_dict["all_loss"], on_step=False, on_epoch=True, prog_bar=True)
-
+        self.log("monitor", loss_CT, on_step=False, on_epoch=True, prog_bar=True)
+        pass
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a Validation Epoch Ends."
@@ -234,32 +217,31 @@ class ConsistencyWaveNetModule(LightningModule):
             speakerID=self.val_batch[7][0].view(-1)
             basepath = self.val_batch[8][0]
 
-            f0_pd_dict = self.net_g.sampling(condition=[ph_IDs, ph_IDs_len, ph_IDs_dur,
+            f0_pd = self.net_g.sampling(condition=[ph_IDs, ph_IDs_len, ph_IDs_dur,
                                         NoteIDs, NoteID_len, None, speakerID])
-            for key, value in f0_pd_dict.items():
-                f0_pd = value
-                self.log(f"val/f0_RMSE_{key}", torch.sqrt(torch.nn.functional.mse_loss(f0_pd, f0_gt)), on_step=False, on_epoch=True, prog_bar=False)
 
-                f0_pd_np = f0_pd[0][0].to('cpu').detach().numpy().copy()
-                f0_gt_np = f0_gt[0][0].to('cpu').detach().numpy().copy()
+            self.log("val/f0_RMSE", torch.sqrt(torch.nn.functional.mse_loss(f0_pd, f0_gt)), on_step=False, on_epoch=True, prog_bar=False)
 
-                f0_pd_image= generate_graph(vector=f0_pd_np ,
-                                            label=f"F0 pd {key}",
-                                            color="blue",
-                                            x_label = 'Frames',
-                                            y_label = "Hz")
-                f0_gtpd_image = generate_graph_overwrite(vector1=f0_gt_np,
-                                                        vector2=f0_pd_np,
-                                                        title="Comparison",
-                                                        x_label = 'Frames',
-                                                        y_label = "Hz")
-                self.logger.experiment.add_image(f"val/f0_pd_{key}", torch.from_numpy(f0_pd_image).clone().permute(2, 0, 1), epoch)
-                self.logger.experiment.add_image(f"val/f0_gt-pd_{key}", torch.from_numpy(f0_gtpd_image).clone().permute(2, 0, 1), epoch)
+            f0_pd = f0_pd[0][0].to('cpu').detach().numpy().copy()
+            f0_gt = f0_gt[0][0].to('cpu').detach().numpy().copy()
 
-                audio_f0pd, audio_original, fs = f0_exchange(basepath+".wav", f0_pd_np)
-                self.logger.experiment.add_audio(f"val/f0_replaced_{key}", audio_f0pd, epoch, fs)
+            f0_pd_image= generate_graph(vector=f0_pd ,
+                                        label="F0 pd",
+                                        color="blue",
+                                        x_label = 'Frames',
+                                        y_label = "Hz")
+            f0_gtpd_image = generate_graph_overwrite(vector1=f0_gt,
+                                                     vector2=f0_pd,
+                                                     title="Comparison",
+                                                     x_label = 'Frames',
+                                                     y_label = "Hz")
+            self.logger.experiment.add_image("val/f0_pd", torch.from_numpy(f0_pd_image).clone().permute(2, 0, 1), epoch)
+            self.logger.experiment.add_image("val/f0_gt-pd", torch.from_numpy(f0_gtpd_image).clone().permute(2, 0, 1), epoch)
+
+            audio_f0pd, audio_original, fs = f0_exchange(basepath+".wav", f0_pd)
+            self.logger.experiment.add_audio("val/f0_exchanged_audio", audio_f0pd, epoch, fs)
             if global_step == 0:
-                f0_gt_image= generate_graph(vector=f0_gt_np,
+                f0_gt_image= generate_graph(vector=f0_gt,
                                             label="F0 gt",
                                             color="red",
                                             x_label='Frames',
@@ -281,10 +263,6 @@ class ConsistencyWaveNetModule(LightningModule):
         """
         # self.net_A.eval() #GAN
         # self.net_B.eval() #GAN
-
-        epoch = self.current_epoch
-        global_step = self.global_step
-
         idx = str(batch_idx).zfill(3)
 
         f0_gt=batch[0][0][0].view(1, 1,-1)
@@ -297,40 +275,39 @@ class ConsistencyWaveNetModule(LightningModule):
         speakerID=batch[7][0].view(-1)
         basepath = batch[8][0]
 
-
-        f0_pd_dict = self.net_g.sampling(condition=[ph_IDs, ph_IDs_len, ph_IDs_dur,
+        f0_pd = self.net_g.sampling(condition=[ph_IDs, ph_IDs_len, ph_IDs_dur,
                                     NoteIDs, NoteID_len, None, speakerID])
-        for key, value in f0_pd_dict.items():
-            f0_pd = value
-            self.log(f"val/f0_RMSE_{key}", torch.sqrt(torch.nn.functional.mse_loss(f0_pd, f0_gt)), on_step=False, on_epoch=True, prog_bar=False)
 
-            f0_pd_np = f0_pd[0][0].to('cpu').detach().numpy().copy()
-            f0_gt_np = f0_gt[0][0].to('cpu').detach().numpy().copy()
+        self.log("test_f0_RMSE", torch.sqrt(torch.nn.functional.mse_loss(f0_pd, f0_gt)), on_step=False, on_epoch=True, prog_bar=False)
 
-            f0_pd_image= generate_graph(vector=f0_pd_np ,
-                                        label=f"F0 pd {key}",
-                                        color="blue",
-                                        x_label = 'Frames',
-                                        y_label = "Hz")
-            f0_gtpd_image = generate_graph_overwrite(vector1=f0_gt_np,
-                                                    vector2=f0_pd_np,
+        f0_pd = f0_pd[0][0].to('cpu').detach().numpy().copy()
+        f0_gt = f0_gt[0][0].to('cpu').detach().numpy().copy()
+
+        f0_pd_image= generate_graph(vector=f0_pd ,
+                                    label="F0 pd",
+                                    color="blue",
+                                    x_label = 'Frames',
+                                    y_label = "Hz")
+        f0_gtpd_image = generate_graph_overwrite(vector1=f0_gt,
+                                                    vector2=f0_pd,
                                                     title="Comparison",
                                                     x_label = 'Frames',
                                                     y_label = "Hz")
-            self.logger.experiment.add_image(f"test/f0_pd_{key}", torch.from_numpy(f0_pd_image).clone().permute(2, 0, 1), epoch)
-            self.logger.experiment.add_image(f"test/f0_gt-pd_{key}", torch.from_numpy(f0_gtpd_image).clone().permute(2, 0, 1), epoch)
+        self.logger.experiment.add_image(f"test_{idx}/f0_pd", torch.from_numpy(f0_pd_image).clone().permute(2, 0, 1), self.current_epoch)
+        self.logger.experiment.add_image(f"test_{idx}/f0_gt-pd", torch.from_numpy(f0_gtpd_image).clone().permute(2, 0, 1), self.current_epoch)
 
-            audio_f0pd, audio_original, fs = f0_exchange(basepath+".wav", f0_pd_np)
-            self.logger.experiment.add_audio(f"test/f0_replaced_{key}", audio_f0pd, epoch, fs)
-
-        f0_gt_image= generate_graph(vector=f0_gt_np,
+        f0_gt_image= generate_graph(vector=f0_gt,
                                     label="F0 gt",
                                     color="red",
                                     x_label='Frames',
                                     y_label="Hz")
-        self.logger.experiment.add_image('test/f0_gt', torch.from_numpy(f0_gt_image).clone().permute(2, 0, 1), self.current_epoch)
-        self.logger.experiment.add_audio("test/gt_audio", audio_original, epoch, fs)
+        self.logger.experiment.add_image(f'test_{idx}/f0_gt', torch.from_numpy(f0_gt_image).clone().permute(2, 0, 1), self.current_epoch)
 
+
+        audio_f0pd, audio_original, fs = f0_exchange(basepath+".wav", f0_pd)
+        self.logger.experiment.add_audio(f"test_{idx}/audio_gt", audio_original, 0, fs)
+        self.logger.experiment.add_audio(f"test_{idx}/audio_pd", audio_f0pd, 0, fs)
+        pass
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a Test Epoch Ends."""
@@ -366,7 +343,7 @@ class ConsistencyWaveNetModule(LightningModule):
         """
 
         # Single Model #
-        optimizer_g = self.optimizer_g(params=self.trainer.model.net_g.student_model.parameters()) # モデルの全てのパラメータを渡す
+        optimizer_g = self.optimizer_g(params=self.trainer.model.parameters()) # モデルの全てのパラメータを渡す
         if self.scheduler_g is not None:
             scheduler_g = self.scheduler_g(optimizer=optimizer_g)
             return {

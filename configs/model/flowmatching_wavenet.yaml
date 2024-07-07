@@ -1,0 +1,58 @@
+_target_: source.model_module.flowmatching_wavenet_module.FlowMatchingWavenetModule
+
+optimizer_g:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 2e-4
+  betas: [0.8, 0.99]
+  eps : 1e-9
+
+scheduler_g:
+  _target_: torch.optim.lr_scheduler.ExponentialLR
+  _partial_: true
+  gamma: 0.999875 # lr_decay
+
+net_g:
+  _target_: source.model_module.models.flowmatching_wavenet.FlowMatchingModels
+  hps:
+    f0:
+      max : 1100
+      min : 65
+    VectorFieldPredictor:
+      vocab_size : 256
+      out_channels : 1
+      inner_channels : 192
+      WN_in_channels : 1          # 固定で
+      WN_kernel_size : 5          # 固定で
+      WN_dilation_rate : 1        # 固定で
+      WN_n_layers : 16            # 固定で
+      WN_p_dropout : 0            # 固定で
+      Attn_filter_channels : 256
+      Attn_n_layers : 6
+      Attn_n_heads : 2
+      Attn_kernel_size : 3
+      Attn_p_dropout : 0.1
+      Diff_step_embed_in : 128
+      Diff_step_embed_mid : 512
+      Diff_step_embed_out : 512
+      n_speakers : 1
+    NoteEncoder :
+      n_note : 127
+      hidden_channels : 192
+    FlowMatching:
+      sigma : 0.1
+      cfm_method : "OT-CFM" #[CFM, OT-CFM, SB-CFM, StochasticInterpolate, ActionMatching]
+      ot_method : "exact" # [exact, sinkhorn, unbalanced, partial]
+
+
+# GAN等、ここで書いたら、moduleにも書き直す
+# net_d:
+#   _target_: source.model_module.models.ddpm_wavenet.DiffusionDiscriminator
+#   hps:
+#     f0:
+#       max : 1100
+#       min : 65
+
+# compile model for faster training with pytorch 2.0
+compile: false
+valid_sampling_in_n_epoch : 10

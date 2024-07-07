@@ -168,7 +168,7 @@ class WN(torch.nn.Module):
       cond_offset = i * 2 * self.hidden_channels # offset
 
       timesteps_l = timesteps[:,timesteps_offset:timesteps_offset+self.hidden_channels, :]
-      x_ts = x + timesteps_l # 
+      x_ts = x + timesteps_l #
       x_in = self.in_layers[i](x_ts) # conv 3x3
 
       # condition process

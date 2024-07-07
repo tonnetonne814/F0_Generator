@@ -1,7 +1,7 @@
-_target_: source.dataloader_module.ddpm_wavenet_datamodule.TextAudioF0DataModule
+_target_: source.dataloader_module.flowmatch_wavenet_datamodule.TextAudioF0DataModule
 hps:
   training:
-    batch_size : 32
+    batch_size : 128
     num_workers : 16
 
   dataset:
@@ -11,6 +11,8 @@ hps:
     # split_ratio : [0.9, 0.05, 0.05] #[train, valid, test]
     boundaries : [32, 300, 400, 500, 600, 700, 800, 900, 1000]
     is_shuffle : true
+    return_shuffle : false
+    return_noises : true
 
   audio_profile:
     sampling_rate: 44100

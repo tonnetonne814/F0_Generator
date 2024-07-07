@@ -111,6 +111,7 @@ class ConsistencyWaveNetModule(LightningModule):
                              global_step = global_step,
                              estimated_stepping_batches = estimated_stepping_batches
                              )
+
         return outputs
 
     def training_step(
@@ -366,7 +367,7 @@ class ConsistencyWaveNetModule(LightningModule):
         """
 
         # Single Model #
-        optimizer_g = self.optimizer_g(params=self.trainer.model.net_g.student_model.parameters()) # モデルの全てのパラメータを渡す
+        optimizer_g = self.optimizer_g(params=self.trainer.model.parameters()) # モデルの全てのパラメータを渡す
         if self.scheduler_g is not None:
             scheduler_g = self.scheduler_g(optimizer=optimizer_g)
             return {

@@ -1,4 +1,4 @@
-_target_: source.dataloader_module.ddpm_wavenet_datamodule.TextAudioF0DataModule
+_target_: source.dataloader_module.consis_openai_datamodule.TextAudioF0DataModule
 hps:
   training:
     batch_size : 32

@@ -13,12 +13,12 @@ scheduler_g:
   gamma: 0.999875 # lr_decay
 
 net_g:
-  _target_: source.model_module.models.consistency_wavenet.ConsistencyModels
+  _target_: source.model_module.models.consistency_UNet1D.ConsistencyModels
   hps:
     f0:
       max : 1100
       min : 65
-      normalize : "[0,1]" #log_scale, [0,1], [-1,1]
+      normalize : "[-1,1]" #log_scale, [0,1], [-1,1]
     Consistency:
       use_improved_consistency : True # True # improved
       initial_ema_decay_rate: 0.95
@@ -50,7 +50,7 @@ net_g:
       WN_in_channels : 1          # 固定で
       WN_kernel_size : 5          # 固定で
       WN_dilation_rate : 1        # 固定で
-      WN_n_layers : 20            # 固定で
+      WN_n_layers : 16            # 固定で
       WN_p_dropout : 0            # 固定で
       Attn_filter_channels : 256
       Attn_n_layers : 6

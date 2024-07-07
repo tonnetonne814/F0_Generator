@@ -125,7 +125,7 @@ def main(cfg: DictConfig) -> Optional[float]:
         metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
     )
 
-    # return optimized metric
+    # return optimized metric 
     return metric_value
 
 if __name__ == "__main__":
