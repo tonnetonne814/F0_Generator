@@ -1,5 +1,12 @@
 # F0_Generator
 「波音リツ」歌唱データベースVer2のデータをべースに、F0生成の実験を行います。
+## 生成手法
+- DDPM
+- Flow Matching
+- Consistency Models
+## モデル
+- ResBlockベース
+- U-Netベース
 
 ## 実行環境構築
 ```
@@ -8,9 +15,6 @@ docker compose up -d
 docker exec -it f0_exp /bin/bash
 poetry install
 source .venv/bin/activate
-git clone https://github.com/Dao-AILab/flash-attention.git
-cd flash-attention
-python setup.py install
 ```
 
 ## データ処理
